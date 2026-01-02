@@ -83,7 +83,7 @@ canvas{
 
 <script>
 /* ===========================
-   POSITIONS (UNCHANGED)
+   POSITIONS (LOCKED)
 =========================== */
 const STORY_POS = {
   x: 128,
@@ -179,6 +179,14 @@ function shrinkFontToFit(ctx,text,startSize,maxWidth){
   return size;
 }
 
+function drawOverlay(ctx,cw,ch){
+  const overlay = new Image();
+  overlay.src = 'meshoverlay.png';
+  overlay.onload = () => {
+    ctx.drawImage(overlay, 0, 0, cw, ch);
+  };
+}
+
 /* ===========================
    DRAW STORY
 =========================== */
@@ -217,9 +225,15 @@ function drawStory(){
       show.DJ &&
       title.trim().toLowerCase() === show.DJ.trim().toLowerCase();
 
-    const djLine = showEqualsDJ
-      ? ''
-      : show.DJ + (guest ? ' + ' + guest : '');
+    // -------- TEXT LOGIC --------
+    let primaryLine = title;
+    let secondaryLine = '';
+
+    if(showEqualsDJ){
+      if(guest) primaryLine = `${title} + ${guest}`;
+    } else {
+      secondaryLine = show.DJ + (guest ? ' + ' + guest : '');
+    }
 
     const dateStr = new Date(show.Date)
       .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
@@ -229,49 +243,51 @@ function drawStory(){
 
     ctx.textBaseline='top';
 
-    /* ---------- SHOW / DJ PILL ---------- */
+    /* ---------- MAIN PILL ---------- */
     ctx.font='64px MeshFont';
-    let titleW = ctx.measureText(title).width;
+    let primaryW = ctx.measureText(primaryLine).width;
 
     ctx.font='42px MeshFont';
-    let djW = djLine ? ctx.measureText(djLine).width : 0;
+    let secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
 
-    let pillW = Math.max(titleW, djW) + (PILL_PADDING_X * 2);
+    let pillW = Math.max(primaryW, secondaryW) + (PILL_PADDING_X * 2);
     let pillX = STORY_POS.x;
 
-    let titleSize = 64;
-    let djSize = 42;
+    let primarySize = 64;
+    let secondarySize = 42;
 
     if(pillW > MAX_PILL_WIDTH){
       const maxTextW = MAX_PILL_WIDTH - (PILL_PADDING_X * 2);
 
-      titleSize = shrinkFontToFit(ctx, title, 64, maxTextW);
-      djSize = shrinkFontToFit(ctx, djLine, 42, maxTextW);
+      primarySize = shrinkFontToFit(ctx, primaryLine, 64, maxTextW);
+      secondarySize = shrinkFontToFit(ctx, secondaryLine, 42, maxTextW);
 
-      ctx.font = `${titleSize}px MeshFont`;
-      titleW = ctx.measureText(title).width;
+      ctx.font = `${primarySize}px MeshFont`;
+      primaryW = ctx.measureText(primaryLine).width;
 
-      ctx.font = `${djSize}px MeshFont`;
-      djW = djLine ? ctx.measureText(djLine).width : 0;
+      ctx.font = `${secondarySize}px MeshFont`;
+      secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
 
       pillW = MAX_PILL_WIDTH;
       pillX = (cw - pillW) / 2;
     }
 
-    drawWhitePill(ctx, pillX, STORY_POS.nowPlayingY, pillW, djLine ? 140 : 92);
+    const pillHeight = secondaryLine ? 140 : 92;
+
+    drawWhitePill(ctx, pillX, STORY_POS.nowPlayingY, pillW, pillHeight);
 
     ctx.fillStyle='#000';
-    ctx.font = `${titleSize}px MeshFont`;
-    ctx.fillText(title, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 18);
+    ctx.font = `${primarySize}px MeshFont`;
+    ctx.fillText(primaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 18);
 
-    if(djLine){
+    if(secondaryLine){
       ctx.globalAlpha=0.75;
-      ctx.font = `${djSize}px MeshFont`;
-      ctx.fillText(djLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 86);
+      ctx.font = `${secondarySize}px MeshFont`;
+      ctx.fillText(secondaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 86);
       ctx.globalAlpha=1;
     }
 
-    /* ---------- DATE + TIME (MOVE UP IF DJ REMOVED) ---------- */
+    /* ---------- DATE + TIME ---------- */
     const dateY = showEqualsDJ
       ? STORY_POS.dateY - DJ_LINE_OFFSET
       : STORY_POS.dateY;
@@ -289,10 +305,13 @@ function drawStory(){
     ctx.fillText(dateStr, startX + 20, dateY + 10);
     ctx.fillText(timeStr, startX + dateW + DATE_TIME_GAP + 20, dateY + 10);
 
-    /* ---------- SITE (MOVE UP WITH DATE/TIME) ---------- */
+    /* ---------- SITE ---------- */
     ctx.fillStyle='rgba(255,255,255,0.75)';
     ctx.font='26px MeshFont';
     ctx.fillText('meshradio.live', startX, dateY + 70);
+
+    /* ---------- FINAL OVERLAY ---------- */
+    drawOverlay(ctx, cw, ch);
 
     downloadBtn.disabled=false;
   };
