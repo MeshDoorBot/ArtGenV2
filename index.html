@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mesh Story — Pill Layout</title>
+
+<style>
+@font-face{
+  font-family:'MeshFont';
+  src:url('fonts/MeshFont.ttf') format('truetype');
+  font-display:swap;
+}
+
+html,body{
+  margin:0;
+  background:#000;
+  color:#fff;
+  font-family:MeshFont, system-ui, -apple-system, BlinkMacSystemFont, Inter, Arial, sans-serif;
+}
+
+body{
+  display:flex;
+  justify-content:center;
+  padding:20px;
+}
+
+.container{
+  width:100%;
+  max-width:420px;
+}
+
+h1{
+  text-align:center;
+  font-size:16px;
+  margin-bottom:10px;
+  opacity:.7;
+}
+
+select,input,button{
+  width:100%;
+  padding:10px;
+  margin-bottom:10px;
+  border-radius:6px;
+  border:none;
+  font-size:14px;
+}
+
+button{
+  background:#1db954;
+  color:#fff;
+  cursor:pointer;
+}
+
+canvas{
+  width:100%;
+  height:auto;
+  background:#000;
+  border-radius:12px;
+  margin-top:10px;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>Mesh Story — Pill Lock</h1>
+
+<select id="showPicker" disabled>
+  <option>Loading shows…</option>
+</select>
+
+<input type="file" id="uploadInput" accept="image/*">
+<input type="text" id="guestInput" placeholder="Add Guest (optional)">
+
+<button id="renderBtn" disabled>Render Story</button>
+<button id="downloadBtn" disabled>Download</button>
+
+<canvas id="c" width="1080" height="1920"></canvas>
+
+</div>
+
+<script>
+/* ===========================
+   POSITIONS (UNCHANGED)
+=========================== */
+const STORY_POS = {
+  x: 128,
+  nowPlayingY: 1512,
+  dateY: 1661
+};
+
+const DJ_LINE_OFFSET = 46;
+
+const MAX_PILL_WIDTH = 1080 - 256;
+const PILL_PADDING_X = 36;
+const DATE_TIME_GAP = 16;
+
+let shows = [];
+let bgData = null;
+
+/* ===========================
+   LOAD SHOW DATA
+=========================== */
+async function loadShows(){
+  const picker = document.getElementById('showPicker');
+  try{
+    const res = await fetch(
+      'https://script.google.com/macros/s/AKfycbw3QgJtZXB48I0BUMpTE5Dlo2kqMReNuD4jbiEVBaB1z49bSgzEkAgixkjHxwTKRwY0/exec'
+    );
+    shows = await res.json();
+  }catch(e){
+    shows=[];
+  }
+
+  picker.innerHTML = '<option disabled selected>Select a show</option>';
+  shows.forEach((s,i)=>{
+    const d = new Date(s.Date);
+    const opt = document.createElement('option');
+    opt.value=i;
+    opt.textContent =
+      `${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} — ${s['Now Playing']}`;
+    picker.appendChild(opt);
+  });
+  picker.disabled=false;
+}
+
+/* ===========================
+   EVENTS
+=========================== */
+uploadInput.addEventListener('change',e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = ev=>{
+    bgData = ev.target.result;
+    renderBtn.disabled=false;
+  };
+  r.readAsDataURL(f);
+});
+
+renderBtn.addEventListener('click',drawStory);
+
+/* ===========================
+   HELPERS
+=========================== */
+function to12h(time){
+  const [h,m] = time.split(':').map(Number);
+  const hr = ((h + 11) % 12) + 1;
+  return `${hr}${m ? ':'+m.toString().padStart(2,'0') : ''}${h >= 12 ? 'pm' : 'am'}`;
+}
+
+function drawVignette(ctx,w,h){
+  const g = ctx.createRadialGradient(
+    w/2, h/2, Math.min(w,h)*0.25,
+    w/2, h/2, Math.max(w,h)*0.8
+  );
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(0,0,0,0.6)');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,w,h);
+}
+
+function drawWhitePill(ctx,x,y,w,h){
+  ctx.fillStyle='#fff';
+  ctx.beginPath();
+  ctx.roundRect(x,y,w,h,16);
+  ctx.fill();
+}
+
+function shrinkFontToFit(ctx,text,startSize,maxWidth){
+  let size=startSize;
+  while(size>18){
+    ctx.font=`${size}px MeshFont`;
+    if(ctx.measureText(text).width<=maxWidth) break;
+    size--;
+  }
+  return size;
+}
+
+/* ===========================
+   DRAW STORY
+=========================== */
+function drawStory(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const cw = canvas.width;
+  const ch = canvas.height;
+
+  const show = shows[showPicker.value];
+  if(!show || !bgData) return;
+
+  ctx.clearRect(0,0,cw,ch);
+
+  const bg = new Image();
+  bg.src = bgData;
+
+  bg.onload = ()=>{
+    const scale = Math.max(cw/bg.naturalWidth, ch/bg.naturalHeight);
+    const sw = cw/scale;
+    const sh = ch/scale;
+    ctx.drawImage(
+      bg,
+      (bg.naturalWidth - sw)/2,
+      (bg.naturalHeight - sh)/2,
+      sw, sh,
+      0, 0, cw, ch
+    );
+
+    drawVignette(ctx,cw,ch);
+
+    const guest = guestInput.value.trim();
+    const title = show['Now Playing'];
+
+    const showEqualsDJ =
+      show.DJ &&
+      title.trim().toLowerCase() === show.DJ.trim().toLowerCase();
+
+    const djLine = showEqualsDJ
+      ? ''
+      : show.DJ + (guest ? ' + ' + guest : '');
+
+    const dateStr = new Date(show.Date)
+      .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+
+    const [startRaw,endRaw] = show['A-B'].split('-');
+    const timeStr = `${to12h(startRaw)} → ${to12h(endRaw)}`;
+
+    ctx.textBaseline='top';
+
+    /* ---------- SHOW / DJ PILL ---------- */
+    ctx.font='64px MeshFont';
+    let titleW = ctx.measureText(title).width;
+
+    ctx.font='42px MeshFont';
+    let djW = djLine ? ctx.measureText(djLine).width : 0;
+
+    let pillW = Math.max(titleW, djW) + (PILL_PADDING_X * 2);
+    let pillX = STORY_POS.x;
+
+    let titleSize = 64;
+    let djSize = 42;
+
+    if(pillW > MAX_PILL_WIDTH){
+      const maxTextW = MAX_PILL_WIDTH - (PILL_PADDING_X * 2);
+
+      titleSize = shrinkFontToFit(ctx, title, 64, maxTextW);
+      djSize = shrinkFontToFit(ctx, djLine, 42, maxTextW);
+
+      ctx.font = `${titleSize}px MeshFont`;
+      titleW = ctx.measureText(title).width;
+
+      ctx.font = `${djSize}px MeshFont`;
+      djW = djLine ? ctx.measureText(djLine).width : 0;
+
+      pillW = MAX_PILL_WIDTH;
+      pillX = (cw - pillW) / 2;
+    }
+
+    drawWhitePill(ctx, pillX, STORY_POS.nowPlayingY, pillW, djLine ? 140 : 92);
+
+    ctx.fillStyle='#000';
+    ctx.font = `${titleSize}px MeshFont`;
+    ctx.fillText(title, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 18);
+
+    if(djLine){
+      ctx.globalAlpha=0.75;
+      ctx.font = `${djSize}px MeshFont`;
+      ctx.fillText(djLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 86);
+      ctx.globalAlpha=1;
+    }
+
+    /* ---------- DATE + TIME (MOVE UP IF DJ REMOVED) ---------- */
+    const dateY = showEqualsDJ
+      ? STORY_POS.dateY - DJ_LINE_OFFSET
+      : STORY_POS.dateY;
+
+    ctx.font='32px MeshFont';
+    const dateW = ctx.measureText(dateStr).width + 40;
+    const timeW = ctx.measureText(timeStr).width + 40;
+
+    const startX = pillX;
+
+    drawWhitePill(ctx, startX, dateY, dateW, 52);
+    drawWhitePill(ctx, startX + dateW + DATE_TIME_GAP, dateY, timeW, 52);
+
+    ctx.fillStyle='#000';
+    ctx.fillText(dateStr, startX + 20, dateY + 10);
+    ctx.fillText(timeStr, startX + dateW + DATE_TIME_GAP + 20, dateY + 10);
+
+    /* ---------- SITE (MOVE UP WITH DATE/TIME) ---------- */
+    ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.font='26px MeshFont';
+    ctx.fillText('meshradio.live', startX, dateY + 70);
+
+    downloadBtn.disabled=false;
+  };
+}
+
+/* ===========================
+   DOWNLOAD
+=========================== */
+downloadBtn.onclick=()=>{
+  c.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download='mesh_story.png';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+};
+
+window.onload=loadShows;
+</script>
+</body>
+</html>
