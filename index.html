@@ -108,8 +108,10 @@ canvas{
 
 <script>
 /* ===========================
-   STORY CONSTANTS (UNCHANGED)
+   CONSTANTS
 =========================== */
+const TEXT_NUDGE_Y = 24;
+
 const STORY_POS = {
   x: 128,
   nowPlayingY: 1512,
@@ -118,8 +120,8 @@ const STORY_POS = {
 
 const FEED45_POS = {
   x: 128,
-  nowPlayingY: 930,
-  dateY: 1080
+  nowPlayingY: 900,
+  dateY: 1040
 };
 
 const DJ_LINE_OFFSET = 46;
@@ -131,7 +133,7 @@ let shows = [];
 let bgData = null;
 
 /* ===========================
-   LOAD SHOWS
+   LOAD SHOW DATA
 =========================== */
 async function loadShows(){
   const res = await fetch(
@@ -205,14 +207,23 @@ function shrinkFont(ctx,text,start,maxW){
   return s;
 }
 
-function drawOverlay(ctx,w,h){
+function drawOverlay(ctx,w,h,src){
   const img=new Image();
-  img.src='meshoverlay.png';
+  img.src=src;
   img.onload=()=>ctx.drawImage(img,0,0,w,h);
 }
 
+function drawCover(ctx,img,cw,ch){
+  const scale=Math.max(cw/img.naturalWidth,ch/img.naturalHeight);
+  const sw=cw/scale;
+  const sh=ch/scale;
+  const sx=(img.naturalWidth-sw)/2;
+  const sy=(img.naturalHeight-sh)/2;
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,cw,ch);
+}
+
 /* ===========================
-   STORY (UNCHANGED)
+   STORY (UNCHANGED LOGIC)
 =========================== */
 function drawStory(){
   c.width=1080; c.height=1920;
@@ -223,18 +234,16 @@ function drawStory(){
   const bg=new Image();
   bg.src=bgData;
   bg.onload=()=>{
-    ctx.drawImage(bg,0,0,1080,1920);
+    drawCover(ctx,bg,1080,1920);
     drawVignette(ctx,1080,1920);
-
-    renderPills(ctx,show,STORY_POS);
-    drawOverlay(ctx,1080,1920);
-
+    renderPills(ctx,show,STORY_POS,TEXT_NUDGE_Y);
+    drawOverlay(ctx,1080,1920,'meshoverlay.png');
     downloadBtn.disabled=false;
   };
 }
 
 /* ===========================
-   4:5 FEED (NEW, ISOLATED)
+   4:5 FEED (CENTER CROP)
 =========================== */
 function drawFeed45(){
   c.width=1080; c.height=1350;
@@ -245,20 +254,18 @@ function drawFeed45(){
   const bg=new Image();
   bg.src=bgData;
   bg.onload=()=>{
-    ctx.drawImage(bg,0,0,1080,1350);
+    drawCover(ctx,bg,1080,1350);
     drawVignette(ctx,1080,1350);
-
-    renderPills(ctx,show,FEED45_POS);
-    drawOverlay(ctx,1080,1350);
-
+    renderPills(ctx,show,FEED45_POS,TEXT_NUDGE_Y);
+    drawOverlay(ctx,1080,1350,'meshoverlay45.png');
     downloadBtn.disabled=false;
   };
 }
 
 /* ===========================
-   SHARED PILL RENDER (SAFE)
+   SHARED PILL RENDER
 =========================== */
-function renderPills(ctx,show,POS){
+function renderPills(ctx,show,POS,NUDGE){
   const guest=guestInput.value.trim();
   const title=show['Now Playing'];
 
@@ -296,35 +303,35 @@ function renderPills(ctx,show,POS){
     x=(1080-w)/2;
   }
 
-  drawWhitePill(ctx,x,POS.nowPlayingY,w,secondary?140:92);
+  drawWhitePill(ctx,x,POS.nowPlayingY+NUDGE,w,secondary?140:92);
 
   ctx.fillStyle='#000';
   ctx.font=`${pSize}px MeshFont`;
-  ctx.fillText(primary,x+PILL_PADDING_X,POS.nowPlayingY+18);
+  ctx.fillText(primary,x+PILL_PADDING_X,POS.nowPlayingY+NUDGE+18);
 
   if(secondary){
     ctx.globalAlpha=.75;
     ctx.font=`${sSize}px MeshFont`;
-    ctx.fillText(secondary,x+PILL_PADDING_X,POS.nowPlayingY+86);
+    ctx.fillText(secondary,x+PILL_PADDING_X,POS.nowPlayingY+NUDGE+86);
     ctx.globalAlpha=1;
   }
 
-  const dy=same?POS.dateY-DJ_LINE_OFFSET:POS.dateY;
-  ctx.font='32px MeshFont';
+  const dy=same?(POS.dateY-DJ_LINE_OFFSET):POS.dateY;
 
+  ctx.font='32px MeshFont';
   const dw=ctx.measureText(dateStr).width+40;
   const tw=ctx.measureText(timeStr).width+40;
 
-  drawWhitePill(ctx,x,dy,dw,52);
-  drawWhitePill(ctx,x+dw+DATE_TIME_GAP,dy,tw,52);
+  drawWhitePill(ctx,x,dy+NUDGE,dw,52);
+  drawWhitePill(ctx,x+dw+DATE_TIME_GAP,dy+NUDGE,tw,52);
 
   ctx.fillStyle='#000';
-  ctx.fillText(dateStr,x+20,dy+10);
-  ctx.fillText(timeStr,x+dw+DATE_TIME_GAP+20,dy+10);
+  ctx.fillText(dateStr,x+20,dy+NUDGE+10);
+  ctx.fillText(timeStr,x+dw+DATE_TIME_GAP+20,dy+NUDGE+10);
 
   ctx.fillStyle='rgba(255,255,255,.75)';
   ctx.font='26px MeshFont';
-  ctx.fillText('meshradio.live',x,dy+70);
+  ctx.fillText('meshradio.live',x,dy+NUDGE+70);
 }
 
 /* ===========================
