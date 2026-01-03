@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Mesh Story — ART GEN </title>
+<title>Mesh Story — ART GEN</title>
 
 <style>
 @font-face{
@@ -65,7 +65,7 @@ canvas{
 <body>
 <div class="container">
 
-<h1>Mesh Story — ART GEN </h1>
+<h1>Mesh Story — ART GEN</h1>
 
 <select id="showPicker" disabled>
   <option>Loading shows…</option>
@@ -95,9 +95,6 @@ const DJ_LINE_OFFSET = 46;
 const MAX_PILL_WIDTH = 1080 - 256;
 const PILL_PADDING_X = 36;
 const DATE_TIME_GAP = 16;
-
-// 🔹 NEW: fine-tune arrow alignment only
-const TIME_TEXT_Y_OFFSET = 0;
 
 let shows = [];
 let bgData = null;
@@ -171,26 +168,28 @@ function drawWhitePill(ctx,x,y,w,h){
   ctx.fill();
 }
 
-function shrinkFontToFit(ctx,text,startSize,maxWidth){
-  let size=startSize;
-  while(size>18){
-    ctx.font=`${size}px MeshFont`;
-    if(ctx.measureText(text).width<=maxWidth) break;
-    size--;
-  }
-  return size;
-}
+/* scale both lines together */
+function scaleFontsToFit(ctx, primaryText, secondaryText, maxTextWidth){
+  ctx.font = '64px MeshFont';
+  const primaryW = ctx.measureText(primaryText).width;
 
-function drawOverlay(ctx,cw,ch){
-  const overlay = new Image();
-  overlay.src = 'meshoverlay.png';
-  overlay.onload = () => {
-    ctx.drawImage(overlay, 0, 0, cw, ch);
+  ctx.font = '42px MeshFont';
+  const secondaryW = secondaryText ? ctx.measureText(secondaryText).width : 0;
+
+  const widest = Math.max(primaryW, secondaryW);
+  if(widest <= maxTextWidth){
+    return { primarySize: 64, secondarySize: 42 };
+  }
+
+  const scale = maxTextWidth / widest;
+  return {
+    primarySize: Math.floor(64 * scale),
+    secondarySize: Math.floor(42 * scale)
   };
 }
 
 /* ===========================
-   DRAW STORY (UNCHANGED)
+   DRAW STORY (IOS-SAFE)
 =========================== */
 function drawStory(){
   const canvas = document.getElementById('c');
@@ -210,6 +209,7 @@ function drawStory(){
     const scale = Math.max(cw/bg.naturalWidth, ch/bg.naturalHeight);
     const sw = cw/scale;
     const sh = ch/scale;
+
     ctx.drawImage(
       bg,
       (bg.naturalWidth - sw)/2,
@@ -236,48 +236,71 @@ function drawStory(){
       secondaryLine = show.DJ + (guest ? ' + ' + guest : '');
     }
 
-    const dateStr = new Date(show.Date)
-      .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+    /* === SCALE + MEASURE === */
+    const maxTextW = MAX_PILL_WIDTH - (PILL_PADDING_X * 2);
+    const sizes = scaleFontsToFit(ctx, primaryLine, secondaryLine, maxTextW);
 
-    const [startRaw,endRaw] = show['A-B'].split('-');
-    const timeStr = `${to12h(startRaw)} → ${to12h(endRaw)}`;
+    ctx.font = `${sizes.primarySize}px MeshFont`;
+    const primaryW = ctx.measureText(primaryLine).width;
 
-    ctx.textBaseline='top';
-
-    ctx.font='64px MeshFont';
-    let primaryW = ctx.measureText(primaryLine).width;
-
-    ctx.font='42px MeshFont';
-    let secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
+    ctx.font = `${sizes.secondarySize}px MeshFont`;
+    const secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
 
     let pillW = Math.max(primaryW, secondaryW) + (PILL_PADDING_X * 2);
     let pillX = STORY_POS.x;
 
-    let primarySize = 64;
-    let secondarySize = 42;
-
     if(pillW > MAX_PILL_WIDTH){
-      const maxTextW = MAX_PILL_WIDTH - (PILL_PADDING_X * 2);
-      primarySize = shrinkFontToFit(ctx, primaryLine, 64, maxTextW);
-      secondarySize = shrinkFontToFit(ctx, secondaryLine, 42, maxTextW);
       pillW = MAX_PILL_WIDTH;
       pillX = (cw - pillW) / 2;
     }
 
     const pillHeight = secondaryLine ? 140 : 92;
+    const pillY = STORY_POS.nowPlayingY;
+    const pillCenterY = pillY + pillHeight / 2;
 
-    drawWhitePill(ctx, pillX, STORY_POS.nowPlayingY, pillW, pillHeight);
+    drawWhitePill(ctx, pillX, pillY, pillW, pillHeight);
+
+    /* === CENTRE TEXT BLOCK AS ONE UNIT === */
+    const primaryH = sizes.primarySize * 0.95;
+    const secondaryH = sizes.secondarySize * 0.95;
+    const gap = secondaryLine ? Math.max(10, sizes.secondarySize * 0.35) : 0;
+
+    const blockH = secondaryLine
+      ? primaryH + gap + secondaryH
+      : primaryH;
+
+    const blockTop = pillCenterY - (blockH / 2);
 
     ctx.fillStyle='#000';
-    ctx.font = `${primarySize}px MeshFont`;
-    ctx.fillText(primaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 18);
+    ctx.textBaseline='middle';
+    ctx.textAlign='left';
+
+    ctx.font = `${sizes.primarySize}px MeshFont`;
+    ctx.fillText(
+      primaryLine,
+      pillX + PILL_PADDING_X,
+      secondaryLine
+        ? blockTop + (primaryH / 2)
+        : pillCenterY
+    );
 
     if(secondaryLine){
       ctx.globalAlpha=0.75;
-      ctx.font = `${secondarySize}px MeshFont`;
-      ctx.fillText(secondaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 86);
+      ctx.font = `${sizes.secondarySize}px MeshFont`;
+      ctx.fillText(
+        secondaryLine,
+        pillX + PILL_PADDING_X,
+        blockTop + primaryH + gap + (secondaryH / 2)
+      );
       ctx.globalAlpha=1;
     }
+
+    /* === DATE / TIME === */
+    const dateStr = new Date(show.Date)
+      .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+
+    const [startRaw,endRaw] = show['A-B'].split('-');
+    const timeStr = `${to12h(startRaw)} → ${to12h(endRaw)}`;
 
     const dateY = showEqualsDJ
       ? STORY_POS.dateY - DJ_LINE_OFFSET
@@ -287,66 +310,50 @@ function drawStory(){
     const dateW = ctx.measureText(dateStr).width + 40;
     const timeW = ctx.measureText(timeStr).width + 40;
 
-    const startX = pillX;
-
-    drawWhitePill(ctx, startX, dateY, dateW, 52);
-    drawWhitePill(ctx, startX + dateW + DATE_TIME_GAP, dateY, timeW, 52);
+    drawWhitePill(ctx, pillX, dateY, dateW, 52);
+    drawWhitePill(ctx, pillX + dateW + DATE_TIME_GAP, dateY, timeW, 52);
 
     ctx.fillStyle='#000';
-    ctx.fillText(dateStr, startX + 20, dateY + 10);
-    ctx.fillText(
-      timeStr,
-      startX + dateW + DATE_TIME_GAP + 20,
-      dateY + 10 + TIME_TEXT_Y_OFFSET
-    );
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText(dateStr, pillX + dateW/2, dateY + 26);
+    ctx.fillText(timeStr, pillX + dateW + DATE_TIME_GAP + timeW/2, dateY + 26);
 
+    ctx.textAlign='left';
     ctx.fillStyle='rgba(255,255,255,0.75)';
     ctx.font='26px MeshFont';
-    ctx.fillText('meshradio.live', startX, dateY + 70);
-
-    drawOverlay(ctx, cw, ch);
+    ctx.fillText('meshradio.live', pillX, dateY + 70);
 
     downloadBtn.disabled=false;
   };
 }
 
 /* ===========================
-   PLATFORM-SAFE DOWNLOAD
+   DOWNLOAD
 =========================== */
 downloadBtn.onclick = async () => {
-  const blob = await new Promise(r => c.toBlob(r, 'image/png', 1));
+  const blob = await new Promise(r => c.toBlob(r,'image/png',1));
   const filename = 'mesh_story.png';
 
-  const isAndroid = /Android/i.test(navigator.userAgent);
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // ✅ Android + Desktop → direct download
-  if (!isIOS) {
+  if(!isIOS){
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
-    document.body.appendChild(a);
     a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 1000);
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
     return;
   }
 
-  // ✅ iOS → share sheet
-  const file = new File([blob], filename, { type: 'image/png' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file] });
-      return;
-    } catch (e) {}
+  const file = new File([blob], filename, { type:'image/png' });
+  if(navigator.canShare && navigator.canShare({ files:[file] })){
+    try{ await navigator.share({ files:[file] }); return; }catch(e){}
   }
 
-  // Fallback
   const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  window.open(url,'_blank');
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
 };
 
 window.onload=loadShows;
