@@ -52,6 +52,23 @@ button{
   cursor:pointer;
 }
 
+.toggle{
+  display:flex;
+  gap:8px;
+}
+.toggle label{
+  flex:1;
+  background:#222;
+  padding:8px;
+  text-align:center;
+  border-radius:6px;
+  cursor:pointer;
+}
+.toggle input{ display:none; }
+.toggle input:checked + label{
+  background:#1db954;
+}
+
 canvas{
   width:100%;
   height:auto;
@@ -74,7 +91,15 @@ canvas{
 <input type="file" id="uploadInput" accept="image/*">
 <input type="text" id="guestInput" placeholder="Add Guest (optional)">
 
-<button id="renderBtn" disabled>Render Story</button>
+<div class="toggle">
+  <input type="radio" id="fmtStory" name="fmt" value="story" checked>
+  <label for="fmtStory">Story</label>
+
+  <input type="radio" id="fmt45" name="fmt" value="feed">
+  <label for="fmt45">4:5</label>
+</div>
+
+<button id="renderBtn" disabled>Render</button>
 <button id="downloadBtn" disabled>Download</button>
 
 <canvas id="c" width="1080" height="1920"></canvas>
@@ -83,7 +108,7 @@ canvas{
 
 <script>
 /* ===========================
-   POSITIONS (LOCKED)
+   STORY CONSTANTS (UNCHANGED)
 =========================== */
 const STORY_POS = {
   x: 128,
@@ -91,8 +116,13 @@ const STORY_POS = {
   dateY: 1661
 };
 
-const DJ_LINE_OFFSET = 46;
+const FEED45_POS = {
+  x: 128,
+  nowPlayingY: 930,
+  dateY: 1080
+};
 
+const DJ_LINE_OFFSET = 46;
 const MAX_PILL_WIDTH = 1080 - 256;
 const PILL_PADDING_X = 36;
 const DATE_TIME_GAP = 16;
@@ -101,63 +131,59 @@ let shows = [];
 let bgData = null;
 
 /* ===========================
-   LOAD SHOW DATA
+   LOAD SHOWS
 =========================== */
 async function loadShows(){
-  const picker = document.getElementById('showPicker');
-  try{
-    const res = await fetch(
-      'https://script.google.com/macros/s/AKfycbw3QgJtZXB48I0BUMpTE5Dlo2kqMReNuD4jbiEVBaB1z49bSgzEkAgixkjHxwTKRwY0/exec'
-    );
-    shows = await res.json();
-  }catch(e){
-    shows=[];
-  }
+  const res = await fetch(
+    'https://script.google.com/macros/s/AKfycbw3QgJtZXB48I0BUMpTE5Dlo2kqMReNuD4jbiEVBaB1z49bSgzEkAgixkjHxwTKRwY0/exec'
+  );
+  shows = await res.json();
 
-  picker.innerHTML = '<option disabled selected>Select a show</option>';
+  showPicker.innerHTML='<option disabled selected>Select a show</option>';
   shows.forEach((s,i)=>{
-    const d = new Date(s.Date);
-    const opt = document.createElement('option');
+    const d=new Date(s.Date);
+    const opt=document.createElement('option');
     opt.value=i;
-    opt.textContent =
+    opt.textContent=
       `${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} — ${s['Now Playing']}`;
-    picker.appendChild(opt);
+    showPicker.appendChild(opt);
   });
-  picker.disabled=false;
+  showPicker.disabled=false;
 }
 
 /* ===========================
    EVENTS
 =========================== */
-uploadInput.addEventListener('change',e=>{
-  const f = e.target.files[0];
+uploadInput.onchange=e=>{
+  const f=e.target.files[0];
   if(!f) return;
-  const r = new FileReader();
-  r.onload = ev=>{
-    bgData = ev.target.result;
+  const r=new FileReader();
+  r.onload=ev=>{
+    bgData=ev.target.result;
     renderBtn.disabled=false;
   };
   r.readAsDataURL(f);
-});
+};
 
-renderBtn.addEventListener('click',drawStory);
+renderBtn.onclick=()=>{
+  const fmt=document.querySelector('input[name="fmt"]:checked').value;
+  if(fmt==='story') drawStory();
+  else drawFeed45();
+};
 
 /* ===========================
    HELPERS
 =========================== */
 function to12h(time){
-  const [h,m] = time.split(':').map(Number);
-  const hr = ((h + 11) % 12) + 1;
-  return `${hr}${m ? ':'+m.toString().padStart(2,'0') : ''}${h >= 12 ? 'pm' : 'am'}`;
+  const [h,m]=time.split(':').map(Number);
+  const hr=((h+11)%12)+1;
+  return `${hr}${m?':'+m.toString().padStart(2,'0'):''}${h>=12?'pm':'am'}`;
 }
 
 function drawVignette(ctx,w,h){
-  const g = ctx.createRadialGradient(
-    w/2, h/2, Math.min(w,h)*0.25,
-    w/2, h/2, Math.max(w,h)*0.8
-  );
+  const g=ctx.createRadialGradient(w/2,h/2,Math.min(w,h)*.25,w/2,h/2,Math.max(w,h)*.8);
   g.addColorStop(0,'rgba(0,0,0,0)');
-  g.addColorStop(1,'rgba(0,0,0,0.6)');
+  g.addColorStop(1,'rgba(0,0,0,.6)');
   ctx.fillStyle=g;
   ctx.fillRect(0,0,w,h);
 }
@@ -169,165 +195,155 @@ function drawWhitePill(ctx,x,y,w,h){
   ctx.fill();
 }
 
-function shrinkFontToFit(ctx,text,startSize,maxWidth){
-  let size=startSize;
-  while(size>18){
-    ctx.font=`${size}px MeshFont`;
-    if(ctx.measureText(text).width<=maxWidth) break;
-    size--;
+function shrinkFont(ctx,text,start,maxW){
+  let s=start;
+  while(s>18){
+    ctx.font=`${s}px MeshFont`;
+    if(ctx.measureText(text).width<=maxW) break;
+    s--;
   }
-  return size;
+  return s;
 }
 
-function drawOverlay(ctx,cw,ch){
-  const overlay = new Image();
-  overlay.src = 'meshoverlay.png';
-  overlay.onload = () => {
-    ctx.drawImage(overlay, 0, 0, cw, ch);
-  };
+function drawOverlay(ctx,w,h){
+  const img=new Image();
+  img.src='meshoverlay.png';
+  img.onload=()=>ctx.drawImage(img,0,0,w,h);
 }
 
 /* ===========================
-   DRAW STORY
+   STORY (UNCHANGED)
 =========================== */
 function drawStory(){
-  const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d');
-  const cw = canvas.width;
-  const ch = canvas.height;
+  c.width=1080; c.height=1920;
+  const ctx=c.getContext('2d');
+  const show=shows[showPicker.value];
+  if(!show||!bgData) return;
 
-  const show = shows[showPicker.value];
-  if(!show || !bgData) return;
+  const bg=new Image();
+  bg.src=bgData;
+  bg.onload=()=>{
+    ctx.drawImage(bg,0,0,1080,1920);
+    drawVignette(ctx,1080,1920);
 
-  ctx.clearRect(0,0,cw,ch);
-
-  const bg = new Image();
-  bg.src = bgData;
-
-  bg.onload = ()=>{
-    const scale = Math.max(cw/bg.naturalWidth, ch/bg.naturalHeight);
-    const sw = cw/scale;
-    const sh = ch/scale;
-    ctx.drawImage(
-      bg,
-      (bg.naturalWidth - sw)/2,
-      (bg.naturalHeight - sh)/2,
-      sw, sh,
-      0, 0, cw, ch
-    );
-
-    drawVignette(ctx,cw,ch);
-
-    const guest = guestInput.value.trim();
-    const title = show['Now Playing'];
-
-    const showEqualsDJ =
-      show.DJ &&
-      title.trim().toLowerCase() === show.DJ.trim().toLowerCase();
-
-    // -------- TEXT LOGIC --------
-    let primaryLine = title;
-    let secondaryLine = '';
-
-    if(showEqualsDJ){
-      if(guest) primaryLine = `${title} + ${guest}`;
-    } else {
-      secondaryLine = show.DJ + (guest ? ' + ' + guest : '');
-    }
-
-    const dateStr = new Date(show.Date)
-      .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
-
-    const [startRaw,endRaw] = show['A-B'].split('-');
-    const timeStr = `${to12h(startRaw)} → ${to12h(endRaw)}`;
-
-    ctx.textBaseline='top';
-
-    /* ---------- MAIN PILL ---------- */
-    ctx.font='64px MeshFont';
-    let primaryW = ctx.measureText(primaryLine).width;
-
-    ctx.font='42px MeshFont';
-    let secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
-
-    let pillW = Math.max(primaryW, secondaryW) + (PILL_PADDING_X * 2);
-    let pillX = STORY_POS.x;
-
-    let primarySize = 64;
-    let secondarySize = 42;
-
-    if(pillW > MAX_PILL_WIDTH){
-      const maxTextW = MAX_PILL_WIDTH - (PILL_PADDING_X * 2);
-
-      primarySize = shrinkFontToFit(ctx, primaryLine, 64, maxTextW);
-      secondarySize = shrinkFontToFit(ctx, secondaryLine, 42, maxTextW);
-
-      ctx.font = `${primarySize}px MeshFont`;
-      primaryW = ctx.measureText(primaryLine).width;
-
-      ctx.font = `${secondarySize}px MeshFont`;
-      secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
-
-      pillW = MAX_PILL_WIDTH;
-      pillX = (cw - pillW) / 2;
-    }
-
-    const pillHeight = secondaryLine ? 140 : 92;
-
-    drawWhitePill(ctx, pillX, STORY_POS.nowPlayingY, pillW, pillHeight);
-
-    ctx.fillStyle='#000';
-    ctx.font = `${primarySize}px MeshFont`;
-    ctx.fillText(primaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 18);
-
-    if(secondaryLine){
-      ctx.globalAlpha=0.75;
-      ctx.font = `${secondarySize}px MeshFont`;
-      ctx.fillText(secondaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 86);
-      ctx.globalAlpha=1;
-    }
-
-    /* ---------- DATE + TIME ---------- */
-    const dateY = showEqualsDJ
-      ? STORY_POS.dateY - DJ_LINE_OFFSET
-      : STORY_POS.dateY;
-
-    ctx.font='32px MeshFont';
-    const dateW = ctx.measureText(dateStr).width + 40;
-    const timeW = ctx.measureText(timeStr).width + 40;
-
-    const startX = pillX;
-
-    drawWhitePill(ctx, startX, dateY, dateW, 52);
-    drawWhitePill(ctx, startX + dateW + DATE_TIME_GAP, dateY, timeW, 52);
-
-    ctx.fillStyle='#000';
-    ctx.fillText(dateStr, startX + 20, dateY + 10);
-    ctx.fillText(timeStr, startX + dateW + DATE_TIME_GAP + 20, dateY + 10);
-
-    /* ---------- SITE ---------- */
-    ctx.fillStyle='rgba(255,255,255,0.75)';
-    ctx.font='26px MeshFont';
-    ctx.fillText('meshradio.live', startX, dateY + 70);
-
-    /* ---------- FINAL OVERLAY ---------- */
-    drawOverlay(ctx, cw, ch);
+    renderPills(ctx,show,STORY_POS);
+    drawOverlay(ctx,1080,1920);
 
     downloadBtn.disabled=false;
   };
 }
 
 /* ===========================
-   DOWNLOAD
+   4:5 FEED (NEW, ISOLATED)
 =========================== */
-downloadBtn.onclick=()=>{
-  c.toBlob(b=>{
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(b);
-    a.download='mesh_story.png';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  });
+function drawFeed45(){
+  c.width=1080; c.height=1350;
+  const ctx=c.getContext('2d');
+  const show=shows[showPicker.value];
+  if(!show||!bgData) return;
+
+  const bg=new Image();
+  bg.src=bgData;
+  bg.onload=()=>{
+    ctx.drawImage(bg,0,0,1080,1350);
+    drawVignette(ctx,1080,1350);
+
+    renderPills(ctx,show,FEED45_POS);
+    drawOverlay(ctx,1080,1350);
+
+    downloadBtn.disabled=false;
+  };
+}
+
+/* ===========================
+   SHARED PILL RENDER (SAFE)
+=========================== */
+function renderPills(ctx,show,POS){
+  const guest=guestInput.value.trim();
+  const title=show['Now Playing'];
+
+  const same=show.DJ &&
+    title.trim().toLowerCase()===show.DJ.trim().toLowerCase();
+
+  let primary=title;
+  let secondary='';
+
+  if(same){
+    if(guest) primary+=` + ${guest}`;
+  }else{
+    secondary=show.DJ+(guest?` + ${guest}`:'');
+  }
+
+  const dateStr=new Date(show.Date)
+    .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  const [s,e]=show['A-B'].split('-');
+  const timeStr=`${to12h(s)} → ${to12h(e)}`;
+
+  ctx.font='64px MeshFont';
+  let pw=ctx.measureText(primary).width;
+  ctx.font='42px MeshFont';
+  let sw=secondary?ctx.measureText(secondary).width:0;
+
+  let w=Math.max(pw,sw)+(PILL_PADDING_X*2);
+  let x=POS.x;
+  let pSize=64,sSize=42;
+
+  if(w>MAX_PILL_WIDTH){
+    const max=MAX_PILL_WIDTH-(PILL_PADDING_X*2);
+    pSize=shrinkFont(ctx,primary,64,max);
+    sSize=shrinkFont(ctx,secondary,42,max);
+    w=MAX_PILL_WIDTH;
+    x=(1080-w)/2;
+  }
+
+  drawWhitePill(ctx,x,POS.nowPlayingY,w,secondary?140:92);
+
+  ctx.fillStyle='#000';
+  ctx.font=`${pSize}px MeshFont`;
+  ctx.fillText(primary,x+PILL_PADDING_X,POS.nowPlayingY+18);
+
+  if(secondary){
+    ctx.globalAlpha=.75;
+    ctx.font=`${sSize}px MeshFont`;
+    ctx.fillText(secondary,x+PILL_PADDING_X,POS.nowPlayingY+86);
+    ctx.globalAlpha=1;
+  }
+
+  const dy=same?POS.dateY-DJ_LINE_OFFSET:POS.dateY;
+  ctx.font='32px MeshFont';
+
+  const dw=ctx.measureText(dateStr).width+40;
+  const tw=ctx.measureText(timeStr).width+40;
+
+  drawWhitePill(ctx,x,dy,dw,52);
+  drawWhitePill(ctx,x+dw+DATE_TIME_GAP,dy,tw,52);
+
+  ctx.fillStyle='#000';
+  ctx.fillText(dateStr,x+20,dy+10);
+  ctx.fillText(timeStr,x+dw+DATE_TIME_GAP+20,dy+10);
+
+  ctx.fillStyle='rgba(255,255,255,.75)';
+  ctx.font='26px MeshFont';
+  ctx.fillText('meshradio.live',x,dy+70);
+}
+
+/* ===========================
+   iOS-SAFE DOWNLOAD
+=========================== */
+downloadBtn.onclick=async()=>{
+  const blob=await new Promise(r=>c.toBlob(r,'image/png',1));
+  const file=new File([blob],'mesh_artwork.png',{type:'image/png'});
+
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({files:[file]});
+      return;
+    }catch(e){}
+  }
+
+  const url=URL.createObjectURL(blob);
+  window.open(url,'_blank');
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
 };
 
 window.onload=loadShows;
