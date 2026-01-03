@@ -52,23 +52,6 @@ button{
   cursor:pointer;
 }
 
-.toggle{
-  display:flex;
-  gap:8px;
-}
-.toggle label{
-  flex:1;
-  background:#222;
-  padding:8px;
-  text-align:center;
-  border-radius:6px;
-  cursor:pointer;
-}
-.toggle input{ display:none; }
-.toggle input:checked + label{
-  background:#1db954;
-}
-
 canvas{
   width:100%;
   height:auto;
@@ -91,15 +74,7 @@ canvas{
 <input type="file" id="uploadInput" accept="image/*">
 <input type="text" id="guestInput" placeholder="Add Guest (optional)">
 
-<div class="toggle">
-  <input type="radio" id="fmtStory" name="fmt" value="story" checked>
-  <label for="fmtStory">Story</label>
-
-  <input type="radio" id="fmt45" name="fmt" value="feed">
-  <label for="fmt45">4:5</label>
-</div>
-
-<button id="renderBtn" disabled>Render</button>
+<button id="renderBtn" disabled>Render Story</button>
 <button id="downloadBtn" disabled>Download</button>
 
 <canvas id="c" width="1080" height="1920"></canvas>
@@ -108,23 +83,16 @@ canvas{
 
 <script>
 /* ===========================
-   CONSTANTS
+   POSITIONS (LOCKED)
 =========================== */
-const TEXT_NUDGE_Y = 36;
-
 const STORY_POS = {
   x: 128,
-  nowPlayingY: 1712,
+  nowPlayingY: 1512,
   dateY: 1661
 };
 
-const FEED45_POS = {
-  x: 128,
-  nowPlayingY: 900,
-  dateY: 1040
-};
-
 const DJ_LINE_OFFSET = 46;
+
 const MAX_PILL_WIDTH = 1080 - 256;
 const PILL_PADDING_X = 36;
 const DATE_TIME_GAP = 16;
@@ -136,56 +104,60 @@ let bgData = null;
    LOAD SHOW DATA
 =========================== */
 async function loadShows(){
-  const res = await fetch(
-    'https://script.google.com/macros/s/AKfycbw3QgJtZXB48I0BUMpTE5Dlo2kqMReNuD4jbiEVBaB1z49bSgzEkAgixkjHxwTKRwY0/exec'
-  );
-  shows = await res.json();
+  const picker = document.getElementById('showPicker');
+  try{
+    const res = await fetch(
+      'https://script.google.com/macros/s/AKfycbw3QgJtZXB48I0BUMpTE5Dlo2kqMReNuD4jbiEVBaB1z49bSgzEkAgixkjHxwTKRwY0/exec'
+    );
+    shows = await res.json();
+  }catch(e){
+    shows=[];
+  }
 
-  showPicker.innerHTML='<option disabled selected>Select a show</option>';
+  picker.innerHTML = '<option disabled selected>Select a show</option>';
   shows.forEach((s,i)=>{
-    const d=new Date(s.Date);
-    const opt=document.createElement('option');
+    const d = new Date(s.Date);
+    const opt = document.createElement('option');
     opt.value=i;
-    opt.textContent=
+    opt.textContent =
       `${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} — ${s['Now Playing']}`;
-    showPicker.appendChild(opt);
+    picker.appendChild(opt);
   });
-  showPicker.disabled=false;
+  picker.disabled=false;
 }
 
 /* ===========================
    EVENTS
 =========================== */
-uploadInput.onchange=e=>{
-  const f=e.target.files[0];
+uploadInput.addEventListener('change',e=>{
+  const f = e.target.files[0];
   if(!f) return;
-  const r=new FileReader();
-  r.onload=ev=>{
-    bgData=ev.target.result;
+  const r = new FileReader();
+  r.onload = ev=>{
+    bgData = ev.target.result;
     renderBtn.disabled=false;
   };
   r.readAsDataURL(f);
-};
+});
 
-renderBtn.onclick=()=>{
-  const fmt=document.querySelector('input[name="fmt"]:checked').value;
-  if(fmt==='story') drawStory();
-  else drawFeed45();
-};
+renderBtn.addEventListener('click',drawStory);
 
 /* ===========================
    HELPERS
 =========================== */
 function to12h(time){
-  const [h,m]=time.split(':').map(Number);
-  const hr=((h+11)%12)+1;
-  return `${hr}${m?':'+m.toString().padStart(2,'0'):''}${h>=12?'pm':'am'}`;
+  const [h,m] = time.split(':').map(Number);
+  const hr = ((h + 11) % 12) + 1;
+  return `${hr}${m ? ':'+m.toString().padStart(2,'0') : ''}${h >= 12 ? 'pm' : 'am'}`;
 }
 
 function drawVignette(ctx,w,h){
-  const g=ctx.createRadialGradient(w/2,h/2,Math.min(w,h)*.25,w/2,h/2,Math.max(w,h)*.8);
+  const g = ctx.createRadialGradient(
+    w/2, h/2, Math.min(w,h)*0.25,
+    w/2, h/2, Math.max(w,h)*0.8
+  );
   g.addColorStop(0,'rgba(0,0,0,0)');
-  g.addColorStop(1,'rgba(0,0,0,.6)');
+  g.addColorStop(1,'rgba(0,0,0,0.6)');
   ctx.fillStyle=g;
   ctx.fillRect(0,0,w,h);
 }
@@ -197,160 +169,158 @@ function drawWhitePill(ctx,x,y,w,h){
   ctx.fill();
 }
 
-function shrinkFont(ctx,text,start,maxW){
-  let s=start;
-  while(s>18){
-    ctx.font=`${s}px MeshFont`;
-    if(ctx.measureText(text).width<=maxW) break;
-    s--;
+function shrinkFontToFit(ctx,text,startSize,maxWidth){
+  let size=startSize;
+  while(size>18){
+    ctx.font=`${size}px MeshFont`;
+    if(ctx.measureText(text).width<=maxWidth) break;
+    size--;
   }
-  return s;
+  return size;
 }
 
-function drawOverlay(ctx,w,h,src){
-  const img=new Image();
-  img.src=src;
-  img.onload=()=>ctx.drawImage(img,0,0,w,h);
-}
-
-function drawCover(ctx,img,cw,ch){
-  const scale=Math.max(cw/img.naturalWidth,ch/img.naturalHeight);
-  const sw=cw/scale;
-  const sh=ch/scale;
-  const sx=(img.naturalWidth-sw)/2;
-  const sy=(img.naturalHeight-sh)/2;
-  ctx.drawImage(img,sx,sy,sw,sh,0,0,cw,ch);
+function drawOverlay(ctx,cw,ch){
+  const overlay = new Image();
+  overlay.src = 'meshoverlay.png';
+  overlay.onload = () => {
+    ctx.drawImage(overlay, 0, 0, cw, ch);
+  };
 }
 
 /* ===========================
-   STORY (UNCHANGED LOGIC)
+   DRAW STORY (UNCHANGED)
 =========================== */
 function drawStory(){
-  c.width=1080; c.height=1920;
-  const ctx=c.getContext('2d');
-  const show=shows[showPicker.value];
-  if(!show||!bgData) return;
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const cw = canvas.width;
+  const ch = canvas.height;
 
-  const bg=new Image();
-  bg.src=bgData;
-  bg.onload=()=>{
-    drawCover(ctx,bg,1080,1920);
-    drawVignette(ctx,1080,1920);
-    renderPills(ctx,show,STORY_POS,TEXT_NUDGE_Y);
-    drawOverlay(ctx,1080,1920,'meshoverlay.png');
+  const show = shows[showPicker.value];
+  if(!show || !bgData) return;
+
+  ctx.clearRect(0,0,cw,ch);
+
+  const bg = new Image();
+  bg.src = bgData;
+
+  bg.onload = ()=>{
+    const scale = Math.max(cw/bg.naturalWidth, ch/bg.naturalHeight);
+    const sw = cw/scale;
+    const sh = ch/scale;
+    ctx.drawImage(
+      bg,
+      (bg.naturalWidth - sw)/2,
+      (bg.naturalHeight - sh)/2,
+      sw, sh,
+      0, 0, cw, ch
+    );
+
+    drawVignette(ctx,cw,ch);
+
+    const guest = guestInput.value.trim();
+    const title = show['Now Playing'];
+
+    const showEqualsDJ =
+      show.DJ &&
+      title.trim().toLowerCase() === show.DJ.trim().toLowerCase();
+
+    let primaryLine = title;
+    let secondaryLine = '';
+
+    if(showEqualsDJ){
+      if(guest) primaryLine = `${title} + ${guest}`;
+    } else {
+      secondaryLine = show.DJ + (guest ? ' + ' + guest : '');
+    }
+
+    const dateStr = new Date(show.Date)
+      .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+
+    const [startRaw,endRaw] = show['A-B'].split('-');
+    const timeStr = `${to12h(startRaw)} → ${to12h(endRaw)}`;
+
+    ctx.textBaseline='top';
+
+    ctx.font='64px MeshFont';
+    let primaryW = ctx.measureText(primaryLine).width;
+
+    ctx.font='42px MeshFont';
+    let secondaryW = secondaryLine ? ctx.measureText(secondaryLine).width : 0;
+
+    let pillW = Math.max(primaryW, secondaryW) + (PILL_PADDING_X * 2);
+    let pillX = STORY_POS.x;
+
+    let primarySize = 64;
+    let secondarySize = 42;
+
+    if(pillW > MAX_PILL_WIDTH){
+      const maxTextW = MAX_PILL_WIDTH - (PILL_PADDING_X * 2);
+      primarySize = shrinkFontToFit(ctx, primaryLine, 64, maxTextW);
+      secondarySize = shrinkFontToFit(ctx, secondaryLine, 42, maxTextW);
+      pillW = MAX_PILL_WIDTH;
+      pillX = (cw - pillW) / 2;
+    }
+
+    const pillHeight = secondaryLine ? 140 : 92;
+
+    drawWhitePill(ctx, pillX, STORY_POS.nowPlayingY, pillW, pillHeight);
+
+    ctx.fillStyle='#000';
+    ctx.font = `${primarySize}px MeshFont`;
+    ctx.fillText(primaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 18);
+
+    if(secondaryLine){
+      ctx.globalAlpha=0.75;
+      ctx.font = `${secondarySize}px MeshFont`;
+      ctx.fillText(secondaryLine, pillX + PILL_PADDING_X, STORY_POS.nowPlayingY + 86);
+      ctx.globalAlpha=1;
+    }
+
+    const dateY = showEqualsDJ
+      ? STORY_POS.dateY - DJ_LINE_OFFSET
+      : STORY_POS.dateY;
+
+    ctx.font='32px MeshFont';
+    const dateW = ctx.measureText(dateStr).width + 40;
+    const timeW = ctx.measureText(timeStr).width + 40;
+
+    const startX = pillX;
+
+    drawWhitePill(ctx, startX, dateY, dateW, 52);
+    drawWhitePill(ctx, startX + dateW + DATE_TIME_GAP, dateY, timeW, 52);
+
+    ctx.fillStyle='#000';
+    ctx.fillText(dateStr, startX + 20, dateY + 10);
+    ctx.fillText(timeStr, startX + dateW + DATE_TIME_GAP + 20, dateY + 10);
+
+    ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.font='26px MeshFont';
+    ctx.fillText('meshradio.live', startX, dateY + 70);
+
+    drawOverlay(ctx, cw, ch);
+
     downloadBtn.disabled=false;
   };
-}
-
-/* ===========================
-   4:5 FEED (CENTER CROP)
-=========================== */
-function drawFeed45(){
-  c.width=1080; c.height=1350;
-  const ctx=c.getContext('2d');
-  const show=shows[showPicker.value];
-  if(!show||!bgData) return;
-
-  const bg=new Image();
-  bg.src=bgData;
-  bg.onload=()=>{
-    drawCover(ctx,bg,1080,1350);
-    drawVignette(ctx,1080,1350);
-    renderPills(ctx,show,FEED45_POS,TEXT_NUDGE_Y);
-    drawOverlay(ctx,1080,1350,'meshoverlay45.png');
-    downloadBtn.disabled=false;
-  };
-}
-
-/* ===========================
-   SHARED PILL RENDER
-=========================== */
-function renderPills(ctx,show,POS,NUDGE){
-  const guest=guestInput.value.trim();
-  const title=show['Now Playing'];
-
-  const same=show.DJ &&
-    title.trim().toLowerCase()===show.DJ.trim().toLowerCase();
-
-  let primary=title;
-  let secondary='';
-
-  if(same){
-    if(guest) primary+=` + ${guest}`;
-  }else{
-    secondary=show.DJ+(guest?` + ${guest}`:'');
-  }
-
-  const dateStr=new Date(show.Date)
-    .toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
-  const [s,e]=show['A-B'].split('-');
-  const timeStr=`${to12h(s)} → ${to12h(e)}`;
-
-  ctx.font='64px MeshFont';
-  let pw=ctx.measureText(primary).width;
-  ctx.font='42px MeshFont';
-  let sw=secondary?ctx.measureText(secondary).width:0;
-
-  let w=Math.max(pw,sw)+(PILL_PADDING_X*2);
-  let x=POS.x;
-  let pSize=64,sSize=42;
-
-  if(w>MAX_PILL_WIDTH){
-    const max=MAX_PILL_WIDTH-(PILL_PADDING_X*2);
-    pSize=shrinkFont(ctx,primary,64,max);
-    sSize=shrinkFont(ctx,secondary,42,max);
-    w=MAX_PILL_WIDTH;
-    x=(1080-w)/2;
-  }
-
-  drawWhitePill(ctx,x,POS.nowPlayingY+NUDGE,w,secondary?140:92);
-
-  ctx.fillStyle='#000';
-  ctx.font=`${pSize}px MeshFont`;
-  ctx.fillText(primary,x+PILL_PADDING_X,POS.nowPlayingY+NUDGE+18);
-
-  if(secondary){
-    ctx.globalAlpha=.75;
-    ctx.font=`${sSize}px MeshFont`;
-    ctx.fillText(secondary,x+PILL_PADDING_X,POS.nowPlayingY+NUDGE+86);
-    ctx.globalAlpha=1;
-  }
-
-  const dy=same?(POS.dateY-DJ_LINE_OFFSET):POS.dateY;
-
-  ctx.font='32px MeshFont';
-  const dw=ctx.measureText(dateStr).width+40;
-  const tw=ctx.measureText(timeStr).width+40;
-
-  drawWhitePill(ctx,x,dy+NUDGE,dw,52);
-  drawWhitePill(ctx,x+dw+DATE_TIME_GAP,dy+NUDGE,tw,52);
-
-  ctx.fillStyle='#000';
-  ctx.fillText(dateStr,x+20,dy+NUDGE+10);
-  ctx.fillText(timeStr,x+dw+DATE_TIME_GAP+20,dy+NUDGE+10);
-
-  ctx.fillStyle='rgba(255,255,255,.75)';
-  ctx.font='26px MeshFont';
-  ctx.fillText('meshradio.live',x,dy+NUDGE+70);
 }
 
 /* ===========================
    iOS-SAFE DOWNLOAD
 =========================== */
-downloadBtn.onclick=async()=>{
-  const blob=await new Promise(r=>c.toBlob(r,'image/png',1));
-  const file=new File([blob],'mesh_artwork.png',{type:'image/png'});
+downloadBtn.onclick = async () => {
+  const blob = await new Promise(r => c.toBlob(r, 'image/png', 1));
+  const file = new File([blob], 'mesh_story.png', { type: 'image/png' });
 
-  if(navigator.canShare && navigator.canShare({files:[file]})){
-    try{
-      await navigator.share({files:[file]});
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
       return;
-    }catch(e){}
+    } catch (e) {}
   }
 
-  const url=URL.createObjectURL(blob);
-  window.open(url,'_blank');
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 };
 
 window.onload=loadShows;
