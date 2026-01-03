@@ -83,7 +83,7 @@ canvas{
 
 <script>
 /* ===========================
-   POSITIONS (LOCKED)
+   CONSTANTS (LOCKED)
 =========================== */
 const STORY_POS = {
   x: 128,
@@ -92,10 +92,12 @@ const STORY_POS = {
 };
 
 const DJ_LINE_OFFSET = 46;
-
 const MAX_PILL_WIDTH = 1080 - 256;
 const PILL_PADDING_X = 36;
 const DATE_TIME_GAP = 16;
+
+// 🔹 NEW: fine-tune arrow alignment only
+const TIME_TEXT_Y_OFFSET = -4;
 
 let shows = [];
 let bgData = null;
@@ -292,7 +294,11 @@ function drawStory(){
 
     ctx.fillStyle='#000';
     ctx.fillText(dateStr, startX + 20, dateY + 10);
-    ctx.fillText(timeStr, startX + dateW + DATE_TIME_GAP + 20, dateY + 10);
+    ctx.fillText(
+      timeStr,
+      startX + dateW + DATE_TIME_GAP + 20,
+      dateY + 10 + TIME_TEXT_Y_OFFSET
+    );
 
     ctx.fillStyle='rgba(255,255,255,0.75)';
     ctx.font='26px MeshFont';
@@ -305,12 +311,31 @@ function drawStory(){
 }
 
 /* ===========================
-   iOS-SAFE DOWNLOAD
+   PLATFORM-SAFE DOWNLOAD
 =========================== */
 downloadBtn.onclick = async () => {
   const blob = await new Promise(r => c.toBlob(r, 'image/png', 1));
-  const file = new File([blob], 'mesh_story.png', { type: 'image/png' });
+  const filename = 'mesh_story.png';
 
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // ✅ Android + Desktop → direct download
+  if (!isIOS) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 1000);
+    return;
+  }
+
+  // ✅ iOS → share sheet
+  const file = new File([blob], filename, { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
@@ -318,6 +343,7 @@ downloadBtn.onclick = async () => {
     } catch (e) {}
   }
 
+  // Fallback
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');
   setTimeout(() => URL.revokeObjectURL(url), 60000);
